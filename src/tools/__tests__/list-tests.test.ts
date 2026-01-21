@@ -27,7 +27,7 @@ describe('list-tests', () => {
       expect(tool.description).toContain('catalog');
       expect(tool.inputSchema.type).toBe('object');
       expect(tool.inputSchema.properties).toHaveProperty('path');
-      expect(tool.inputSchema.properties.path.type).toBe('string');
+      expect((tool.inputSchema.properties!.path as any).type).toBe('string');
     });
   });
 

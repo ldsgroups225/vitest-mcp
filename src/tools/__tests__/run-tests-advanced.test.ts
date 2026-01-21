@@ -19,12 +19,6 @@ const mockIsDirectory = vi.mocked(isDirectory);
 
 describe('run-tests (advanced functionality)', () => {
   const mockProjectRoot = '/test/project';
-  const mockConfig = {
-    testDefaults: {
-      format: 'summary' as const,
-      timeout: 30000
-    }
-  };
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -32,8 +26,19 @@ describe('run-tests (advanced functionality)', () => {
     
     // Setup default mocks
     mockProjectContext.getProjectRoot.mockReturnValue(mockProjectRoot);
-    mockGetConfig.mockResolvedValue(mockConfig);
-    mockCheckAllVersions.mockResolvedValue({ errors: [], warnings: [] });
+    mockGetConfig.mockResolvedValue({
+      testDefaults: { format: 'summary', timeout: 30000, watchMode: false },
+      coverageDefaults: { format: 'summary', exclude: [] },
+      discovery: { testPatterns: ['**/*.{test,spec}.*'], excludePatterns: ['node_modules'], maxDepth: 10 },
+      server: { verbose: false, validatePaths: true, allowRootExecution: false, workingDirectory: process.cwd() },
+      safety: { maxFiles: 100, requireConfirmation: true, allowedRunners: ['vitest'], allowedPaths: [] }
+    });
+    mockCheckAllVersions.mockResolvedValue({
+      errors: [],
+      warnings: [],
+      vitest: { version: '1.0.0', major: 1, minor: 0, patch: 0, compatible: true, meetsMinimum: true, isRecommended: true, supportedFeatures: [], missingFeatures: [] } as any,
+      coverageProvider: { version: '1.0.0', major: 1, minor: 0, patch: 0, compatible: true, meetsMinimum: true, provider: 'v8' } as any
+    });
     mockFileExists.mockResolvedValue(true);
     mockIsDirectory.mockResolvedValue(false);
   });

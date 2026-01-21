@@ -31,7 +31,7 @@ function createMockChildProcess() {
 describe('run-tests (basic functionality)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    
+
     // Setup default mocks
     vi.mocked(projectContext.getProjectRoot).mockReturnValue('/test/project');
     vi.mocked(fileUtils.fileExists).mockResolvedValue(true);
@@ -46,19 +46,38 @@ describe('run-tests (basic functionality)', () => {
       errors: [],
       warnings: []
     } as any);
-    vi.mocked(processTestResult).mockImplementation(async (result, format, _context) => ({
-      command: result.command,
-      success: result.success,
-      summary: { totalTests: 1, passed: 1, failed: 0 },
-      format: format,
-      executionTimeMs: 100
-    }));
-    
+    vi.mocked(processTestResult).mockImplementation(async (result, format, _context) => {
+      const testSummary = { totalTests: 1, passed: 1, failed: 0 };
+      return {
+        command: result.command,
+        success: result.success,
+        summary: JSON.stringify(testSummary),
+        testSummary,
+        format,
+        executionTimeMs: 100
+      };
+    });
+
+    // Setup spawn mock to return immediately
+    const mockSpawn = vi.mocked(spawn);
+    mockSpawn.mockImplementation((_command, _args, _options) => {
+      const mockChild = createMockChildProcess();
+      // Simulate immediate successful completion
+      setTimeout(() => {
+        mockChild.stdout.emit('data', Buffer.from(JSON.stringify({
+          testResults: [],
+          summary: { totalTests: 0, passed: 0, failed: 0 }
+        })));
+        mockChild.emit('close', 0);
+      }, 10);
+      return mockChild;
+    });
+
     // Setup fs mocks
-    vi.mocked(writeFileSync).mockImplementation(() => {});
+    vi.mocked(writeFileSync).mockImplementation(() => { });
     vi.mocked(readFileSync).mockReturnValue('');
     vi.mocked(existsSync).mockReturnValue(true);
-    vi.mocked(unlinkSync).mockImplementation(() => {});
+    vi.mocked(unlinkSync).mockImplementation(() => { });
   });
 
   afterEach(() => {
@@ -69,7 +88,7 @@ describe('run-tests (basic functionality)', () => {
     it('should have correct name and description', () => {
       // Arrange & Act
       const tool = runTestsTool;
-      
+
       // Assert
       expect(tool.name).toBe('run_tests');
       expect(tool.description).toContain('Execute Vitest tests');
@@ -80,20 +99,19 @@ describe('run-tests (basic functionality)', () => {
     it('should define proper input schema', () => {
       // Arrange & Act
       const schema = runTestsTool.inputSchema;
-      
+
       // Assert
       expect(schema.type).toBe('object');
-      expect(schema.properties).toBeDefined();
-      expect(schema.properties.target).toBeDefined();
-      expect(schema.properties.format).toBeDefined();
-      expect(schema.properties.project).toBeDefined();
-      expect(schema.properties.showLogs).toBeDefined();
+      expect(schema.properties!.target).toBeDefined();
+      expect(schema.properties!.format).toBeDefined();
+      expect(schema.properties!.project).toBeDefined();
+      expect(schema.properties!.showLogs).toBeDefined();
     });
 
     it('should validate required parameters', () => {
       // Arrange & Act
       const schema = runTestsTool.inputSchema;
-      
+
       // Assert
       expect(schema.required).toContain('target');
       expect(schema.required).toHaveLength(1);
@@ -101,14 +119,16 @@ describe('run-tests (basic functionality)', () => {
 
     it('should provide helpful parameter descriptions', () => {
       // Arrange & Act
-      const props = runTestsTool.inputSchema.properties;
-      
+      const schema = runTestsTool.inputSchema;
+
       // Assert
-      expect(props.target.description).toContain('File path or directory to test');
-      expect(props.format.description).toContain('Output format');
-      expect(props.format.enum).toEqual(['summary', 'detailed']);
-      expect(props.project.description).toContain('monorepo');
-      expect(props.showLogs.description).toContain('console output');
+      expect(schema.properties).toBeDefined();
+      const props = schema.properties!;
+      expect((props.target as any).description).toContain('File path or directory to test');
+      expect((props.format as any).description).toContain('Output format');
+      expect((props.format as any).enum).toEqual(['summary', 'detailed']);
+      expect((props.project as any).description).toContain('monorepo');
+      expect((props.showLogs as any).description).toContain('console output');
     });
   });
 
@@ -116,16 +136,18 @@ describe('run-tests (basic functionality)', () => {
     beforeEach(() => {
       const mockChild = createMockChildProcess();
       vi.mocked(spawn).mockReturnValue(mockChild as any);
-      
+
       // Reset the processTestResult mock to return success for these tests
+      const testSummary = { totalTests: 1, passed: 1, failed: 0 };
       vi.mocked(processTestResult).mockImplementation(async (result, format, _context) => ({
         command: result.command,
         success: true,
-        summary: { totalTests: 1, passed: 1, failed: 0 },
-        format: format,
+        summary: JSON.stringify(testSummary),
+        testSummary,
+        format,
         executionTimeMs: 100
       }));
-      
+
       // Simulate successful test execution
       setTimeout(() => {
         mockChild.stdout.emit('data', Buffer.from('{"numTotalTests":1,"numPassedTests":1,"numFailedTests":0,"success":true}'));
@@ -138,10 +160,10 @@ describe('run-tests (basic functionality)', () => {
       const args: RunTestsArgs = {
         target: './test.ts'
       };
-      
+
       // Act
       const result = await handleRunTests(args);
-      
+
       // Assert
       expect(result.success).toBe(true);
       expect(result.command).toContain('test.ts');
@@ -158,10 +180,10 @@ describe('run-tests (basic functionality)', () => {
       const args: RunTestsArgs = {
         target: './tests'
       };
-      
+
       // Act
       const result = await handleRunTests(args);
-      
+
       // Assert
       expect(result.success).toBe(true);
       expect(result.command).toContain('tests');
@@ -178,10 +200,10 @@ describe('run-tests (basic functionality)', () => {
       const args: RunTestsArgs = {
         target: './src/components'
       };
-      
+
       // Act
       const result = await handleRunTests(args);
-      
+
       // Assert
       expect(result.success).toBe(true);
       expect(result.command).toContain('src/components');
@@ -193,10 +215,10 @@ describe('run-tests (basic functionality)', () => {
       const args: RunTestsArgs = {
         target: './**/*.test.ts'
       };
-      
+
       // Act
       const result = await handleRunTests(args);
-      
+
       // Assert
       expect(result.success).toBe(true);
       expect(result.command).toContain('**/*.test.ts');
@@ -208,10 +230,10 @@ describe('run-tests (basic functionality)', () => {
         target: './test.ts',
         project: 'web'
       };
-      
+
       // Act
       await handleRunTests(args);
-      
+
       // Assert
       expect(spawn).toHaveBeenCalledWith(
         'npx',
@@ -229,10 +251,10 @@ describe('run-tests (basic functionality)', () => {
         isMultiFile: false,
         targetType: 'file'
       };
-      
+
       // Act
       const format = await determineFormat(args, context, false);
-      
+
       // Assert
       expect(format).toBe('summary');
     });
@@ -244,10 +266,10 @@ describe('run-tests (basic functionality)', () => {
         isMultiFile: false,
         targetType: 'file'
       };
-      
+
       // Act
       const format = await determineFormat(args, context, true);
-      
+
       // Assert
       expect(format).toBe('detailed');
     });
@@ -259,17 +281,17 @@ describe('run-tests (basic functionality)', () => {
         isMultiFile: true,
         targetType: 'directory'
       };
-      
+
       // Act
       const format = await determineFormat(args, context, false);
-      
+
       // Assert
       expect(format).toBe('detailed');
     });
 
     it('should respect explicit format parameter', async () => {
       // Arrange
-      const args: RunTestsArgs = { 
+      const args: RunTestsArgs = {
         target: './tests',
         format: 'summary'
       };
@@ -277,18 +299,18 @@ describe('run-tests (basic functionality)', () => {
         isMultiFile: true,
         targetType: 'directory'
       };
-      
+
       // Act
       const format = await determineFormat(args, context, true);
-      
+
       // Assert
       expect(format).toBe('summary');
     });
 
     it('should validate format parameter values', () => {
       // Arrange & Act
-      const formatEnum = runTestsTool.inputSchema.properties.format.enum;
-      
+      const formatEnum = (runTestsTool.inputSchema.properties!.format as any).enum;
+
       // Assert
       expect(formatEnum).toEqual(['summary', 'detailed']);
     });
@@ -297,23 +319,25 @@ describe('run-tests (basic functionality)', () => {
   describe('Project Context Integration', () => {
     beforeEach(() => {
       // Reset to default success mock for most tests in this group
+      const testSummary = { totalTests: 1, passed: 1, failed: 0 };
       vi.mocked(processTestResult).mockImplementation(async (result, format, _context) => ({
         command: result.command,
         success: true,
-        summary: { totalTests: 1, passed: 1, failed: 0 },
-        format: format,
+        summary: JSON.stringify(testSummary),
+        testSummary,
+        format,
         executionTimeMs: 100
       }));
     });
     it('should validate project root is set', async () => {
       // Arrange
       const args: RunTestsArgs = { target: './test.ts' };
-      
+
       // Act & Assert
       await expect(async () => {
         await handleRunTests(args);
       }).not.toThrow();
-      
+
       expect(projectContext.getProjectRoot).toHaveBeenCalled();
     });
 
@@ -322,18 +346,20 @@ describe('run-tests (basic functionality)', () => {
       vi.mocked(projectContext.getProjectRoot).mockImplementation(() => {
         throw new Error('Project root has not been set');
       });
+      const errorTestSummary = { totalTests: 0, passed: 0, failed: 0 };
       vi.mocked(processTestResult).mockImplementation(async (result, _format, _context) => ({
         command: result.command,
         success: false,
-        summary: { totalTests: 0, passed: 0, failed: 0 },
+        summary: JSON.stringify(errorTestSummary),
+        testSummary: errorTestSummary,
         format: 'detailed' as const,
         executionTimeMs: 100
       }));
       const args: RunTestsArgs = { target: './test.ts' };
-      
+
       // Act
       const result = await handleRunTests(args);
-      
+
       // Assert
       expect(result.success).toBe(false);
       expect(result.command).toBeDefined();
@@ -350,10 +376,10 @@ describe('run-tests (basic functionality)', () => {
     it('should use project root for relative path resolution', async () => {
       // Arrange
       const args: RunTestsArgs = { target: './src/test.ts' };
-      
+
       // Act
       await handleRunTests(args);
-      
+
       // Assert
       expect(fileUtils.fileExists).toHaveBeenCalledWith('/test/project/src/test.ts');
     });
@@ -362,13 +388,13 @@ describe('run-tests (basic functionality)', () => {
       // Arrange
       const args1: RunTestsArgs = { target: './test1.ts' };
       const args2: RunTestsArgs = { target: './test2.ts' };
-      
+
       // Act
       await handleRunTests(args1);
-      
+
       vi.mocked(projectContext.getProjectRoot).mockReturnValue('/different/project');
       await handleRunTests(args2);
-      
+
       // Assert
       expect(projectContext.getProjectRoot).toHaveBeenCalledTimes(2);
       expect(fileUtils.fileExists).toHaveBeenCalledWith('/test/project/test1.ts');
@@ -380,18 +406,20 @@ describe('run-tests (basic functionality)', () => {
     it('should handle non-existent test files gracefully', async () => {
       // Arrange
       vi.mocked(fileUtils.fileExists).mockResolvedValue(false);
+      const errorTestSummary = { totalTests: 0, passed: 0, failed: 0 };
       vi.mocked(processTestResult).mockImplementation(async (result, _format, _context) => ({
         command: result.command,
         success: false,
-        summary: { totalTests: 0, passed: 0, failed: 0 },
+        summary: JSON.stringify(errorTestSummary),
+        testSummary: errorTestSummary,
         format: 'detailed' as const,
         executionTimeMs: 100
       }));
       const args: RunTestsArgs = { target: './nonexistent.ts' };
-      
+
       // Act
       const result = await handleRunTests(args);
-      
+
       // Assert
       expect(result.success).toBe(false);
       expect(processTestResult).toHaveBeenCalledWith(
@@ -406,18 +434,20 @@ describe('run-tests (basic functionality)', () => {
 
     it('should handle invalid path arguments', async () => {
       // Arrange
+      const errorTestSummary = { totalTests: 0, passed: 0, failed: 0 };
       vi.mocked(processTestResult).mockImplementation(async (result, _format, _context) => ({
         command: result.command,
         success: false,
-        summary: { totalTests: 0, passed: 0, failed: 0 },
+        summary: JSON.stringify(errorTestSummary),
+        testSummary: errorTestSummary,
         format: 'detailed' as const,
         executionTimeMs: 100
       }));
       const args: RunTestsArgs = { target: '' };
-      
+
       // Act
       const result = await handleRunTests(args);
-      
+
       // Assert
       expect(result.success).toBe(false);
       expect(processTestResult).toHaveBeenCalledWith(
@@ -433,18 +463,20 @@ describe('run-tests (basic functionality)', () => {
     it('should provide clear error messages for common issues', async () => {
       // Arrange
       vi.mocked(fileUtils.isDirectory).mockResolvedValue(true);
+      const errorTestSummary = { totalTests: 0, passed: 0, failed: 0 };
       vi.mocked(processTestResult).mockImplementation(async (result, _format, _context) => ({
         command: result.command,
         success: false,
-        summary: { totalTests: 0, passed: 0, failed: 0 },
+        summary: JSON.stringify(errorTestSummary),
+        testSummary: errorTestSummary,
         format: 'detailed' as const,
         executionTimeMs: 100
       }));
       const args: RunTestsArgs = { target: './' };
-      
+
       // Act
       const result = await handleRunTests(args);
-      
+
       // Assert
       expect(result.success).toBe(false);
       expect(processTestResult).toHaveBeenCalledWith(
@@ -461,18 +493,20 @@ describe('run-tests (basic functionality)', () => {
       // Arrange
       const permissionError = new Error('EACCES: permission denied');
       vi.mocked(fileUtils.fileExists).mockRejectedValue(permissionError);
+      const errorTestSummary = { totalTests: 0, passed: 0, failed: 0 };
       vi.mocked(processTestResult).mockImplementation(async (result, _format, _context) => ({
         command: result.command,
         success: false,
-        summary: { totalTests: 0, passed: 0, failed: 0 },
+        summary: JSON.stringify(errorTestSummary),
+        testSummary: errorTestSummary,
         format: 'detailed' as const,
         executionTimeMs: 100
       }));
       const args: RunTestsArgs = { target: './test.ts' };
-      
+
       // Act
       const result = await handleRunTests(args);
-      
+
       // Assert
       expect(result.success).toBe(false);
       expect(processTestResult).toHaveBeenCalledWith(
@@ -489,21 +523,23 @@ describe('run-tests (basic functionality)', () => {
   describe('Response Structure', () => {
     beforeEach(() => {
       // Reset to default success mock
+      const testSummary = { totalTests: 1, passed: 1, failed: 0 };
       vi.mocked(processTestResult).mockImplementation(async (result, format, _context) => ({
         command: result.command,
         success: true,
-        summary: { totalTests: 1, passed: 1, failed: 0 },
-        format: format,
+        summary: JSON.stringify(testSummary),
+        testSummary,
+        format,
         executionTimeMs: 100
       }));
     });
     it('should return consistent response structure', async () => {
       // Arrange
       const args: RunTestsArgs = { target: './test.ts' };
-      
+
       // Act
       const result = await handleRunTests(args);
-      
+
       // Assert
       expect(result).toHaveProperty('command');
       expect(result).toHaveProperty('success');
@@ -515,10 +551,10 @@ describe('run-tests (basic functionality)', () => {
     it('should include command information', async () => {
       // Arrange
       const args: RunTestsArgs = { target: './test.ts', project: 'web' };
-      
+
       // Act
       const result = await handleRunTests(args);
-      
+
       // Assert
       expect(result.command).toContain('vitest run');
       expect(result.command).toContain('test.ts');
@@ -527,10 +563,10 @@ describe('run-tests (basic functionality)', () => {
     it('should include execution context', async () => {
       // Arrange
       const args: RunTestsArgs = { target: './test.ts' };
-      
+
       // Act
       const result = await handleRunTests(args);
-      
+
       // Assert
       expect(result.format).toBeDefined();
       expect(['summary', 'detailed']).toContain(result.format);
@@ -540,17 +576,17 @@ describe('run-tests (basic functionality)', () => {
     it('should include test summary', async () => {
       // Arrange
       const args: RunTestsArgs = { target: './test.ts' };
-      
+
       // Act
       const result = await handleRunTests(args);
-      
+
       // Assert
-      expect(result.summary).toHaveProperty('totalTests');
-      expect(result.summary).toHaveProperty('passed');
-      expect(result.summary).toHaveProperty('failed');
-      expect(result.summary.totalTests).toBeTypeOf('number');
-      expect(result.summary.passed).toBeTypeOf('number');
-      expect(result.summary.failed).toBeTypeOf('number');
+      expect(result.testSummary).toHaveProperty('totalTests');
+      expect(result.testSummary).toHaveProperty('passed');
+      expect(result.testSummary).toHaveProperty('failed');
+      expect(result.testSummary.totalTests).toBeTypeOf('number');
+      expect(result.testSummary.passed).toBeTypeOf('number');
+      expect(result.testSummary.failed).toBeTypeOf('number');
     });
 
     it('should conditionally include detailed results', async () => {
@@ -558,7 +594,8 @@ describe('run-tests (basic functionality)', () => {
       vi.mocked(processTestResult).mockResolvedValueOnce({
         command: 'vitest run test.ts',
         success: false,
-        summary: { totalTests: 1, passed: 0, failed: 1 },
+        summary: JSON.stringify({ totalTests: 1, passed: 0, failed: 1 }),
+        testSummary: { totalTests: 1, passed: 0, failed: 1 },
         format: 'detailed' as const,
         executionTimeMs: 100,
         testResults: {
@@ -573,10 +610,10 @@ describe('run-tests (basic functionality)', () => {
         }
       });
       const args: RunTestsArgs = { target: './test.ts' };
-      
+
       // Act
       const result = await handleRunTests(args);
-      
+
       // Assert
       expect(result.testResults).toBeDefined();
       expect(result.testResults?.failedTests).toBeDefined();
@@ -586,21 +623,23 @@ describe('run-tests (basic functionality)', () => {
   describe('Path Handling', () => {
     beforeEach(() => {
       // Reset to default success mock
+      const testSummary = { totalTests: 1, passed: 1, failed: 0 };
       vi.mocked(processTestResult).mockImplementation(async (result, format, _context) => ({
         command: result.command,
         success: true,
-        summary: { totalTests: 1, passed: 1, failed: 0 },
-        format: format,
+        summary: JSON.stringify(testSummary),
+        testSummary,
+        format,
         executionTimeMs: 100
       }));
     });
     it('should resolve relative paths against project root', async () => {
       // Arrange
       const args: RunTestsArgs = { target: './src/test.ts' };
-      
+
       // Act
       await handleRunTests(args);
-      
+
       // Assert
       expect(fileUtils.fileExists).toHaveBeenCalledWith('/test/project/src/test.ts');
     });
@@ -608,10 +647,10 @@ describe('run-tests (basic functionality)', () => {
     it('should handle absolute paths correctly', async () => {
       // Arrange
       const args: RunTestsArgs = { target: '/absolute/path/test.ts' };
-      
+
       // Act
       await handleRunTests(args);
-      
+
       // Assert
       expect(fileUtils.fileExists).toHaveBeenCalledWith('/absolute/path/test.ts');
     });
@@ -619,10 +658,10 @@ describe('run-tests (basic functionality)', () => {
     it('should normalize path separators', async () => {
       // Arrange
       const args: RunTestsArgs = { target: './src\\test.ts' };
-      
+
       // Act
       const result = await handleRunTests(args);
-      
+
       // Assert
       expect(result.command).toContain('src');
       expect(result.command).toContain('test.ts');
@@ -631,10 +670,10 @@ describe('run-tests (basic functionality)', () => {
     it('should validate path security', async () => {
       // Arrange - Trying to use path traversal
       const args: RunTestsArgs = { target: '../../../etc/passwd' };
-      
+
       // Act
       await handleRunTests(args);
-      
+
       // Assert
       expect(fileUtils.fileExists).toHaveBeenCalled();
       // The specific path validation is handled by file-utils
@@ -645,16 +684,18 @@ describe('run-tests (basic functionality)', () => {
     beforeEach(() => {
       const mockChild = createMockChildProcess();
       vi.mocked(spawn).mockReturnValue(mockChild as any);
-      
+
       // Reset the processTestResult mock to return success for these tests
+      const testSummary = { totalTests: 1, passed: 1, failed: 0 };
       vi.mocked(processTestResult).mockImplementation(async (result, format, _context) => ({
         command: result.command,
         success: true,
-        summary: { totalTests: 1, passed: 1, failed: 0 },
-        format: format,
+        summary: JSON.stringify(testSummary),
+        testSummary,
+        format,
         executionTimeMs: 100
       }));
-      
+
       setTimeout(() => {
         mockChild.stdout.emit('data', Buffer.from('{"success":true}'));
         mockChild.emit('close', 0);
@@ -664,10 +705,10 @@ describe('run-tests (basic functionality)', () => {
     it('should execute vitest with correct arguments', async () => {
       // Arrange
       const args: RunTestsArgs = { target: './test.ts' };
-      
+
       // Act
       await handleRunTests(args);
-      
+
       // Assert
       expect(spawn).toHaveBeenCalledWith(
         'npx',
@@ -682,10 +723,10 @@ describe('run-tests (basic functionality)', () => {
     it('should use JSON reporter by default', async () => {
       // Arrange
       const args: RunTestsArgs = { target: './test.ts' };
-      
+
       // Act
       await handleRunTests(args);
-      
+
       // Assert
       expect(spawn).toHaveBeenCalledWith(
         'npx',
@@ -698,7 +739,7 @@ describe('run-tests (basic functionality)', () => {
       // Arrange
       const mockChild = createMockChildProcess();
       vi.mocked(spawn).mockReturnValue(mockChild as any);
-      
+
       // Create a promise that resolves when the mock child closes
       const childProcess = new Promise<void>((resolve) => {
         setTimeout(() => {
@@ -707,17 +748,17 @@ describe('run-tests (basic functionality)', () => {
           resolve();
         }, 10);
       });
-      
-      const args: RunTestsArgs = { 
+
+      const args: RunTestsArgs = {
         target: './test.ts',
         showLogs: true
       };
-      
+
       // Act
       const resultPromise = handleRunTests(args);
       await childProcess; // Wait for the mock child process to emit events
       await resultPromise;
-      
+
       // Assert
       expect(spawn).toHaveBeenCalledWith(
         'npx',
@@ -728,14 +769,14 @@ describe('run-tests (basic functionality)', () => {
 
     it('should respect vitest workspace configurations', async () => {
       // Arrange
-      const args: RunTestsArgs = { 
+      const args: RunTestsArgs = {
         target: './test.ts',
         project: 'web'
       };
-      
+
       // Act
       await handleRunTests(args);
-      
+
       // Assert
       expect(spawn).toHaveBeenCalledWith(
         'npx',
@@ -749,10 +790,10 @@ describe('run-tests (basic functionality)', () => {
     it('should create execution context for file', async () => {
       // Arrange
       vi.mocked(fileUtils.isDirectory).mockResolvedValue(false);
-      
+
       // Act
       const context = await createExecutionContext('/test/project/test.ts');
-      
+
       // Assert
       expect(context.isMultiFile).toBe(false);
       expect(context.targetType).toBe('file');
@@ -762,10 +803,10 @@ describe('run-tests (basic functionality)', () => {
     it('should create execution context for directory', async () => {
       // Arrange
       vi.mocked(fileUtils.isDirectory).mockResolvedValue(true);
-      
+
       // Act
       const context = await createExecutionContext('/test/project/tests');
-      
+
       // Assert
       expect(context.isMultiFile).toBe(true);
       expect(context.targetType).toBe('directory');

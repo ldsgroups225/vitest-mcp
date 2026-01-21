@@ -49,15 +49,7 @@ describe('set-project-root', () => {
       watchMode: false
     },
     coverageDefaults: {
-      threshold: 80,
       format: 'summary',
-      thresholds: {
-        lines: 80,
-        functions: 80,
-        branches: 80,
-        statements: 80
-      },
-      thresholdsExplicitlySet: false,
       exclude: []
     },
     discovery: {
@@ -134,7 +126,7 @@ describe('set-project-root', () => {
 
     it('should validate path parameter type', () => {
       // Arrange & Act & Assert
-      expect(setProjectRootTool.inputSchema.properties.path.type).toBe('string');
+      expect((setProjectRootTool.inputSchema.properties!.path as any).type).toBe('string');
     });
   });
 
