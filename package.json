@@ -34,7 +34,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/djankies/vitest-mcp"
+    "url": "https://github.com/ldsgroups225/vitest-mcp"
   },
   "publishConfig": {
     "access": "public"

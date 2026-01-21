@@ -75,7 +75,7 @@ export class VitestMCPServer {
     this.server.setRequestHandler(ListToolsRequestSchema, async () => {
       const config = await getConfig();
       const tools = this.toolRegistry.getTools();
-      
+
       const updatedTools = tools.map(tool => {
         if (tool.name === 'analyze_coverage') {
           return {
@@ -93,7 +93,7 @@ export class VitestMCPServer {
 
     this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
       const { name, arguments: args } = request.params;
-      
+
       return await this.toolRegistry.execute(name, args);
     });
 
@@ -229,12 +229,15 @@ async function gracefulShutdown(): Promise<void> {
 
 // Run main() when this module is executed
 // Check if this module is the main module being executed
-const isMainModule = 
+const isMainModule =
   import.meta.url === `file://${process.argv[1]}` ||
   process.argv[1]?.endsWith('/vitest-mcp') ||
   process.argv[1]?.endsWith('\\vitest-mcp') ||
   process.argv[1]?.endsWith('/dist/index.js') ||
-  process.argv[1]?.endsWith('\\dist\\index.js');
+  process.argv[1]?.endsWith('\\dist\\index.js') ||
+  process.argv[1]?.endsWith('/index.js') ||
+  process.argv[1]?.endsWith('\\index.js') ||
+  !process.argv[1]; // Handle cases where argv[1] is undefined (npx execution)
 
 if (isMainModule) {
   main().catch((error) => {

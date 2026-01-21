@@ -1,11 +1,10 @@
 {
   "mcpServers": {
-    "vitest-mcp": {
-      "type": "stdio",
+    "vitest": {
       "command": "npx",
       "args": [
         "-y",
-        "@ldsgroups225/vitest-mcp@latest"
+        "github:ldsgroups225/vitest-mcp"
       ],
       "env": {}
     }
